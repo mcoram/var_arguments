@@ -7,26 +7,29 @@ Here are some tricks to remove the redundancy of mentioning variable names multi
 into:
   ddict('x,y',locals())
 
-...ddict...
-
 Similary, we can change:
   f(x=x,y=y)
 into:
   dcall(f,'x,y',locals())
 where:
 
-...dcall...
-
 More generally, if we have a dictionary xy with keys x and y and if our local variables include a and b, we can change:
   f(x=xy['x'],y=xy['y'],a=a,b=b)
 into:
   ldcall(f,'x,y,a,b',[locals(),xy])
-where:
-
-...ldcall...
-(If keys are defined in multiple dictionaries, the behavior will be that the later dictionaries override the former; make sure that's what you want.)
-
 """
+
+def recon_dict(dictToImitate,dictWithValues):
+    """
+    recon_dict is for the case when you have one dictionary that holds old values
+    for all the keys that you're interested in, and another dictionary that holds the
+    new values for all those keys (as well as possibly others that you don't want)
+    """
+    return dict( (k,dictWithValues[k]) for k in dictToImitate.keys() )
+
+def test_recon_dict():
+    xyab=dict(x=1,y=2,a=3,b=4)
+    assert recon_dict(dict(a=8,b=9),xyab)==dict(a=3,b=4)
 
 def ddict(varstr,yourlocals,sep=','):
     """
@@ -95,6 +98,14 @@ def test_lddict_1():
     assert answer==lddict('x,b',[xy,ab])
     x=5
     assert lddict('x,b',[xy,ab,locals()]) == dict(x=5,b=4)
+    try:
+        lddict('z,b',[xy,ab])
+    except KeyError, e:
+        None # Expected; there's no z
+    else:
+        assert False
+        
+        
     
 def ldcall(f,varstr,dictlist):
     """
@@ -106,9 +117,7 @@ def ldcall(f,varstr,dictlist):
     (If keys are defined in multiple dictionaries, the behavior will be that the later
      dictionaries override the former; make sure that's what you want.)
     """
-    merged_dict={}
-    for d in dictlist: merged_dict.update(d)
-    return f(**ddict(varstr,merged_dict))
+    return f(**lddict(varstr,dictlist))
 
 def test_ldcall():
       def f(x,y,a,b):
@@ -126,17 +135,22 @@ def use_dargs(f):
     keyword argument that, if present, must be a list of dictionaries.
     The key value pairs in those dictionaries will appear as regular arguments
     to the decorated function.
-    If you want think trick to work when you pass, e.g. dargs=[locals()], write the
-    function to accept **kwargs as an argument.
+    If you want think trick to work when you pass, e.g. dargs=[locals()], or, generally,
+    if the dictionaries in the dargs list have extra keys that are not arguments of f,
+    write f to accept **kwargs as an argument.
     """
     def f_new(*pargs,**kwargs):
         dargs=kwargs.get('dargs',None)
         if dargs!=None:
+            nargs={}
             if debug: print 'dargs==%r'%dargs
-            del kwargs['dargs']
             for d in dargs:
-                kwargs.update(d)
-        return f(*pargs,**kwargs)
+                nargs.update(d)
+            del kwargs['dargs']
+            nargs.update(kwargs) # let keyword arguments override even the dargs dictionaries
+            return f(*pargs,**nargs)
+        else:
+            return f(*pargs,**kwargs)
     return f_new
 
 def test_use_dargs_1():
@@ -169,13 +183,27 @@ def test_use_dargs_1():
     #for 3, f will receive the other locals too, like bd, so in order that it ignore
     # such extra arguments, it's necessary that f accept general **kwargs.
 
-def local_return(f):
+    # To test precedence overriding, let the locals and ab have extraneous values for a
+    # the intended result is that the "a=3" in the call takes precedence
+    ab['a']=7
+    a=8
+    yd={'y':2}
+    assert use_dargs(fA)(1,a=3,dargs=[yd,ab])==4
+    assert use_dargs(fB)(1,a=3,dargs=[locals(),ab])==4
+
+    # Here we're testing that the value for a should come from ab
+    ab['a']=3
+    assert use_dargs(fB)(1,dargs=[yd,ab])==4
+    assert use_dargs(fB)(1,dargs=[locals(),ab])==4
+    
+
+def dict_return(f):
     """
-    Decorator that composes the function with a call to ddict.
+    Decorator that composes the function with a call to lddict.
     """
     def f_new(*pargs,**kwargs):
-        varstr,yourlocals=f(*pargs,**kwargs)
-        return ddict(varstr,yourlocals)
+        varstr,yourdicts=f(*pargs,**kwargs)
+        return lddict(varstr,yourdicts)
     return f_new
 
 def test_decorators():
@@ -186,11 +214,11 @@ def test_decorators():
       answer=myfunc_mundane(1,2,3,4)
       assert answer==dict(x=1,y=4,a=3,b=4)
 
-      @local_return
+      @dict_return
       @use_dargs
       def myfunc(x,y,a,b):
           y=x+a
-          return 'x,y,a,b',locals()
+          return 'x,y,a,b',[locals()]
 
 
       ab={'a':3,'b':4}
@@ -201,3 +229,56 @@ def test_decorators():
       assert myfunc(dargs=[xy,ab]) == answer
       justb={'b':4}
       assert myfunc(a=3,dargs=[xy,justb]) == answer
+
+def test_stack_overflow_solution():
+    def f_mundane(d1,d2):
+        x,y,a,b = d1['x'],d1['y'],d2['a'],d2['b']
+        y=x+a
+        return {'x':x,'y':y}, {'a':a,'b':b}
+
+    def f(d1,d2):
+        r=f2(dargs=[d1,d2])
+        return recon_dict(d1,r), recon_dict(d2,r)
+      
+    @use_dargs
+    def f2(x,y,a,b):
+        y=x+a
+        return locals()
+
+    xy=dict(x=1,y=2)
+    ab=dict(a=3,b=4)
+    answer_xy, answer_ab=f_mundane(xy,ab)
+    assert answer_xy==dict(x=1,y=4)
+    assert answer_ab==dict(a=3,b=4)
+
+    res_xy, res_ab = f(xy,ab)
+    assert res_xy==answer_xy
+    assert res_ab==answer_ab
+
+    answer=dict(x=1,y=4,a=3,b=4)
+    assert f2(1,2,3,4)==answer
+    assert f2(1,a=3,dargs=[dict(y=2,b=4)])==answer
+    
+
+def experimental_idiom(f):
+    return dict_return(use_dargs(f))
+
+def test_experimental_idiom():
+
+    @experimental_idiom
+    def f1(u):
+        z=u+5
+        x=z+5
+        y=z+6
+        xz=ddict('x,z',locals())
+        return 'x,y,xz',[locals()]
+
+    @experimental_idiom
+    def f2(a,u,y,**kwargs):
+        a=(u-1)*y
+        return 'a,y',[locals()]
+    d1=dict(u=0)
+    d2=f1(dargs=[d1])
+    d3=f2(a=7,dargs=[d1,d2])
+    
+__all__=["recon_dict", "ddict", "lddict", "dcall", "ldcall", "use_dargs", "dict_return","experimental_idiom"]
