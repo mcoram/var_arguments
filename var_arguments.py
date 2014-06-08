@@ -64,6 +64,38 @@ def test_dcall_1():
     a=1;b=2;c=3
     dcall(f,'a,c',locals())
 
+def lddict(varstr,dictlist,sep=','):
+    """
+    Suppose you have dicts xy=dict(x=1,y=2) and ab=dict(a=3,b=4).
+    And that what you would normally write is:
+       dict(x=xy['x'],b=ab['b'])
+    in order to get dict(x=1,b=4), in this case.
+    Now you can write: lddict('x,b',[xy,ab]), to get the same result
+    """
+    varl=varstr.split(sep)
+    revdlist=dictlist[:]
+    revdlist.reverse()
+    result={}
+    for k in varl:
+        found=False
+        for d1 in revdlist:
+            if d1.has_key(k):
+                result[k]=d1[k]
+                found=True
+                break
+        if not found:
+            raise KeyError(k)
+    return result
+
+def test_lddict_1():
+    xy=dict(x=1,y=2)
+    ab=dict(a=3,b=4)
+    answer=dict(x=xy['x'],b=ab['b'])
+    assert answer==dict(x=1,b=4)
+    assert answer==lddict('x,b',[xy,ab])
+    x=5
+    assert lddict('x,b',[xy,ab,locals()]) == dict(x=5,b=4)
+    
 def ldcall(f,varstr,dictlist):
     """
     Suppose you have a dictionary xy with keys x and y and local variables a and b, then
