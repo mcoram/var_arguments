@@ -2,21 +2,6 @@ debug=False # Optionally turn on debug print statements
 ## To test, use "nosetests -v var_arguments.py"
 
 """
-Here are some tricks to remove the redundancy of mentioning variable names multiple times within a function body. First, we can change:
-  {'x':x,'y':y}
-into:
-  ddict('x,y',locals())
-
-Similary, we can change:
-  f(x=x,y=y)
-into:
-  dcall(f,'x,y',locals())
-where:
-
-More generally, if we have a dictionary xy with keys x and y and if our local variables include a and b, we can change:
-  f(x=xy['x'],y=xy['y'],a=a,b=b)
-into:
-  ldcall(f,'x,y,a,b',[locals(),xy])
 """
 
 def recon_dict(dictToImitate,dictWithValues):
@@ -27,9 +12,15 @@ def recon_dict(dictToImitate,dictWithValues):
     """
     return dict( (k,dictWithValues[k]) for k in dictToImitate.keys() )
 
-def test_recon_dict():
+def test_recon_dict_1():
     xyab=dict(x=1,y=2,a=3,b=4)
     assert recon_dict(dict(a=8,b=9),xyab)==dict(a=3,b=4)
+def test_recon_dict_2():
+    old_d=dict(a=8,b=9) # I want these keys, but they're old values
+    xyab=dict(x=1,y=2,a=3,b=4) # These are the new values, but I don't want all of them
+    new_d=recon_dict(old_d,xyab)
+    assert new_d==dict(a=3,b=4)
+    
 
 def ddict(varstr,yourlocals,sep=','):
     """
@@ -135,7 +126,7 @@ def use_dargs(f):
     keyword argument that, if present, must be a list of dictionaries.
     The key value pairs in those dictionaries will appear as regular arguments
     to the decorated function.
-    If you want think trick to work when you pass, e.g. dargs=[locals()], or, generally,
+    If you want this trick to work when you pass, e.g. dargs=[locals()], or, generally,
     if the dictionaries in the dargs list have extra keys that are not arguments of f,
     write f to accept **kwargs as an argument.
     """
@@ -239,7 +230,7 @@ def test_stack_overflow_solution():
     def f(d1,d2):
         r=f2(dargs=[d1,d2])
         return recon_dict(d1,r), recon_dict(d2,r)
-      
+
     @use_dargs
     def f2(x,y,a,b):
         y=x+a
@@ -258,7 +249,7 @@ def test_stack_overflow_solution():
     answer=dict(x=1,y=4,a=3,b=4)
     assert f2(1,2,3,4)==answer
     assert f2(1,a=3,dargs=[dict(y=2,b=4)])==answer
-    
+    assert f2(dargs=[dict(x=1,y=2),dict(a=3,b=4)])==answer
 
 def experimental_idiom(f):
     return dict_return(use_dargs(f))
